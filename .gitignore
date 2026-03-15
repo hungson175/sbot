@@ -8,5 +8,5 @@ __pycache__/
 *.pyc
 lt-memory/.last_scan_commit
 
-# Sample code (dir tracked, contents ignored)
-sample_code/nanobot/
+# Sample code (reference only, too large for git)
+sample_code/
