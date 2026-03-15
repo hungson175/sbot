@@ -1,0 +1,8 @@
+Create or update a task plan for complex work. Call this tool IMMEDIATELY when starting a complex task to break it into subtasks. Call it again EVERY TIME a subtask state changes. Always send the FULL list with updated states — never send just the changed task.
+
+The plan is a living document — add, remove, or reorder subtasks as execution reveals what's actually needed.
+
+Args:
+    todo_list: A list of task objects. Each task has two fields:
+        - "state": one of "pending", "in_progress", or "done"
+        - "description": a short, concrete description of what to do (e.g. "Read config.py to understand current setup", "Add validation to user input handler")

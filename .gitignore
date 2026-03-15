@@ -1,0 +1,12 @@
+# Environment
+.env
+
+# Output / runtime
+output/
+sessions/
+__pycache__/
+*.pyc
+lt-memory/.last_scan_commit
+
+# Sample code (dir tracked, contents ignored)
+sample_code/nanobot/

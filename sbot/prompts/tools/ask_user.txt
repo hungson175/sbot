@@ -1,0 +1,4 @@
+Ask the user a clarifying question when the task is ambiguous or you need more information to proceed correctly. Use this instead of guessing. Only ask one focused question at a time.
+
+Args:
+    question: The question to ask the user. Be specific about what you need to know and why.

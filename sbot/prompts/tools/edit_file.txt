@@ -1,0 +1,7 @@
+Edit a file by finding and replacing text. The old_text must match EXACTLY — including whitespace, indentation, and line breaks. Always read_file first to get the exact text to match.
+
+Args:
+    path: The file path to edit (e.g. "src/main.py", "config.yaml").
+    old_text: The exact text to find in the file. Must match character-for-character. Include enough surrounding lines for uniqueness.
+    new_text: The text to replace it with. Can be empty string to delete the old_text.
+    replace_all: If true, replace all occurrences. If false (default), old_text must appear exactly once in the file — if it appears multiple times, include more context to make it unique, or set replace_all=true.

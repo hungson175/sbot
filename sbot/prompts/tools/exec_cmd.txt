@@ -1,0 +1,9 @@
+Execute a shell command and return combined stdout and stderr.
+
+For short-lived commands (default): runs synchronously, times out after 120 seconds.
+For long-running or server commands (npm start, python server.py, etc.): set background=true to start the process in the background and return immediately with the PID. Background processes continue running after the tool returns.
+
+Args:
+    command: The shell command to execute (e.g. "ls -la", "npm install", "python server.py").
+    background: If true, start the command in the background and return the PID immediately. Use this for servers, watchers, or any command that runs indefinitely. Default: false.
+    timeout: Maximum seconds to wait for a foreground command (default 120). Ignored when background=true.

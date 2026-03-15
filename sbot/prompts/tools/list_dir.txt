@@ -1,0 +1,4 @@
+List files and directories at a given path. Directories are shown with a trailing slash.
+
+Args:
+    path: The directory path to list (default: current directory).

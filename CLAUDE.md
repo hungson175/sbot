@@ -1,53 +1,76 @@
 # CLAUDE.md — sbot
 
-sbot is a from-scratch reimplementation of the nanobot AI assistant framework.
-Reference codebase lives at `../nanobot/`. Read `../docs/tech/` for architecture docs.
+sbot is a from-scratch AI assistant framework, learning from nanobot's design but **not copying it**.
+Reference: `sample_code/nanobot/` | Architecture docs: `docs/tech/`
 
-## Learning Methodology
-**Single-file first, refactor later.** Each layer is ONE tiny step:
-1. Start with everything in ONE file — grasp the whole flow
-2. Play around, experiment, break things
-3. Only then add the next small piece
-4. Refactoring into multiple files/abstractions = its own separate layer
-5. NO premature abstractions (providers, registries, bus, config schemas) until they're actually needed
-
-**What "layer" means:** NOT a whole subsystem. A layer is the smallest thing you can add, test, and understand. Examples:
-- Layer 1: agent loop + tools in one file → it works, you understand the flow
-- Layer 2: add session persistence (still same file or minimal addition)
-- Layer 3: add a system prompt from a file
-- Later: refactor into packages when the single file gets too big
-
-**Anti-patterns to avoid:**
-- Building a full package structure before having working code
-- Provider abstraction before testing multiple models
-- Registry pattern before having 5+ tools
-- MessageBus before having multiple channels
+## Key Decisions
+- **LangChain** foundation: `@tool` decorator, `ChatAnthropic` with `.bind_tools()`, LangChain message types
+- **MiniMax M2.5** via Anthropic-compatible API (`ANTHROPIC_AUTH_TOKEN` in `.env`)
+- **Prompts externalized**: system prompt in `sbot/prompts/system.txt`, tool descriptions in `sbot/prompts/tools/*.txt`
+- `.bind_tools()` attaches tool descriptions to API requests — do NOT duplicate in system prompt
+- **Sync callback outbound** for CLI (immediate print), **async send queue** for network channels (non-blocking)
 
 ## Commands
 ```bash
-# Run
-ANTHROPIC_AUTH_TOKEN=sk-... python3 sbot.py "message"   # Single message
-ANTHROPIC_AUTH_TOKEN=sk-... python3 sbot.py              # Interactive mode
+python3 -m sbot                         # Interactive CLI mode
+python3 -m sbot serve                   # Gateway mode (Telegram + future channels)
 ```
 
-## Current State
-- **Stack**: Python 3.11+, asyncio, langchain-anthropic
-- **LLM**: MiniMax-M2.5-highspeed via Anthropic-compatible API (`https://api.minimax.io/anthropic`)
-- **API Key**: `ANTHROPIC_AUTH_TOKEN` env var
-- **Structure**: Single file `sbot.py` — agent loop + 3 tools (read_file, list_dir, exec)
+## Current Structure
+```
+sbot/
+  config.py        — API key, model, system prompt loader
+  tools.py         — 8 tools: read_file, list_dir, write_file, edit_file, search_files, exec_cmd (with background), plan, context_status
+  compact.py       — Two-phase context compaction (prune + LLM summary) + per-session MemoryStore
+  agent.py         — agent_loop() consuming from bus, emitting outbound events, auto-compact
+  session.py       — JSONL persistence with compact/metadata events
+  bus.py           — MessageBus with MsgType enum, sync callback delivery
+  app.py           — Entry point: CLI mode + gateway mode (`serve`)
+  channels/
+    base.py        — BaseChannel ABC (start, stop, send, is_allowed)
+    cli.py         — CLI channel (sync callback → print)
+    telegram.py    — Telegram channel (polling inbound, async send queue outbound)
+  prompts/
+    system.txt     — Base system prompt (behavioral rules only)
+    tools/*.txt    — One file per tool description
+    samples/       — Reference prompts from: opencode, aider, cline, swe-agent, bolt
+```
 
 ## Growth Plan
-- [x] Layer 1 — Agent loop + tools in one file
-- [ ] Layer 2 — Session persistence (JSONL, same file)
-- [ ] Layer 3 — System prompt from file (AGENTS.md / SOUL.md)
-- [ ] Layer 4 — Write/edit file tools
-- [ ] Layer 5 — Refactor into package structure
-- [ ] ... (define as we go)
+- [x] Layer 1–4 — Agent loop, sessions, prompts, tools
+- [x] Layer 5 — Message bus + CLI channel
+- [x] Layer 6 — Telegram channel (polling, allowlist, async send queue)
+- [ ] Layer 7 — Facebook Messenger channel
+- [x] Layer 8 — Auto-compact (two-phase context compaction + per-session memory)
+- [ ] Layer 9+ — Provider abstraction, cron, extensions
+
+Full backlog: `docs/plan/backlog.md`
+
+## Key Conventions
+- Tool descriptions in `sbot/prompts/tools/<name>.txt` with `Args:` section and examples
+- System prompt = behavioral rules only (no tool descriptions)
+- Message types use `MsgType` StrEnum — never bare strings
+- CLI outbound: sync callback (immediate). Network channels: async send queue (non-blocking)
+- Tools run in `run_in_executor` to avoid blocking the event loop
+- `exec_cmd` has `background=true` for long-running/server commands
+- Session key = `{channel}_{chat_id}` (e.g. `telegram_6614099581`)
+
+## Env Vars
+- `ANTHROPIC_AUTH_TOKEN` — MiniMax API key
+- `TELEGRAM_BOT_TOKEN` — Telegram bot token from @BotFather
+- `TELEGRAM_ALLOWED_CHAT_IDS` — comma-separated chat IDs (empty = allow all)
 
 ## Pitfalls
 Read [lt-memory/pitfalls.md](lt-memory/pitfalls.md) before modifying tricky areas.
 
+## Architecture Docs — KEEP IN SYNC
+When making significant structural changes (new modules, new channels, changed message flow), update the relevant file in `lt-memory/architecture/`. Run `/claude-md diff` or `/claude-md deep` to auto-sync.
+
 ## Long-Term Memory
 `lt-memory/` — detail files read on-demand:
-- `architecture.md` — Target system design (reference for later layers)
+- `architecture/` — System design (split into focused files):
+  - [overview.md](lt-memory/architecture/overview.md) — High-level design + principles
+  - [flows.md](lt-memory/architecture/flows.md) — User flow diagrams (Mermaid)
+  - [modules.md](lt-memory/architecture/modules.md) — Per-module descriptions
+  - [decisions.md](lt-memory/architecture/decisions.md) — Key decisions + rationale
 - `pitfalls.md` — Gotchas discovered during implementation

@@ -1,0 +1,6 @@
+Read file contents with line numbers. Use offset and limit to paginate large files.
+
+Args:
+    path: The file path to read.
+    offset: Line number to start reading from (1-indexed, default 1).
+    limit: Maximum number of lines to return (default 2000).

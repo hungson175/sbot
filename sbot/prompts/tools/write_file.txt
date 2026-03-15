@@ -1,0 +1,5 @@
+Create or overwrite a file with the given content. Creates parent directories if needed.
+
+Args:
+    path: The file path to write to.
+    content: The full content to write to the file.

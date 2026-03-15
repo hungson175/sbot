@@ -1,0 +1,9 @@
+Check current context window usage — how many tokens are being used out of the maximum.
+
+Returns the exact input token count from the last API call, the context window limit, usage percentage, and remaining capacity. Use this when the user asks about token usage, context size, or how much conversation space remains.
+
+No arguments required — automatically reads the current session's token usage.
+
+Examples:
+  context_status()
+  → "Context: 45.2k / 204k tokens (22.2%) — 158.8k remaining"
