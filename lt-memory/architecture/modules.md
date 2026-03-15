@@ -14,17 +14,30 @@ Entry point. `run()` dispatches to `main_cli()` or `main_serve()` based on args.
 `agent_loop(llm, bus)` — consumes `bus.inbound`, runs `_process_message()`.
 Unbounded `while True` tool-calling loop. Tools run in `run_in_executor()`.
 Session save batched via `save_messages()`. Emits events via `_emit()` → `bus.emit()`.
+Auto-compact check before each LLM call (triggers at 80% of 204k context).
+Token usage appended to every final response. Uses `contextvars.ContextVar` for async-safe per-session state (shared with `context_status` tool).
+
+## compact.py
+Two-phase context compaction + per-session memory persistence.
+- Phase 1 `prune_tool_outputs()`: strips old ToolMessage content, shrinks tool_call args (free, no LLM)
+- Phase 2 `compact_with_llm()`: structured summary via `with_structured_output(CompactSummary)`, JSON-parse fallback
+- `rebuild_history()`: SystemMessage + summary pair + recent turns
+- `MemoryStore`: per-session `MEMORY.md` (facts) + `HISTORY.md` (grep-searchable log) in `sessions/{name}_memory/`
+- `format_token_usage()`: shared formatter for token display (used by agent.py + context_status tool)
+- Adaptive keep: tries 3→2→1→0 turns post-compact to stay under 40% target
 
 ## session.py
 JSONL persistence in `sessions/`. `save_messages()` batches writes.
-`load_session()` caps at 100 most recent messages. Dir created at import.
+`load_session()` returns `tuple[list, int]` (messages, last_consolidated). Caps at 100 most recent.
+`save_compact_event()` writes `_type: compact` lines. Lines with `_type` field are skipped by message deserializer.
 
 ## config.py
 Loads `.env`, reads `prompts/system.txt` as base prompt, appends bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md).
 
 ## tools.py
-7 tools via `@tool(description=_load_description("name"))`.
+8 tools via `@tool(description=_load_description("name"))`.
 Descriptions in `prompts/tools/*.txt`. `exec_cmd` has `background` mode.
+`context_status` tool reads current session token usage via lazy import from `agent.get_current_token_usage()`.
 
 ## channels/base.py
 `BaseChannel` ABC: `start()`, `stop()`, `send()`, `is_allowed()`.

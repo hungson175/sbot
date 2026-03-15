@@ -47,22 +47,66 @@ class CompactSummary(BaseModel):
 
 # --- Token estimation ---
 
-def estimate_tokens(messages: list) -> int:
-    """Cheap estimate: serialize each message, sum char lengths // 4."""
-    total = 0
+# Lazy-loaded tiktoken encoder
+_encoder = None
+
+def _get_encoder():
+    global _encoder
+    if _encoder is None:
+        import tiktoken
+        _encoder = tiktoken.get_encoding("cl100k_base")
+    return _encoder
+
+
+# Cache tool schema token count (computed once, tools don't change at runtime)
+_tool_schema_tokens: int | None = None
+
+def _get_tool_schema_tokens() -> int:
+    """Count tokens in tool schemas (sent via .bind_tools()). Cached after first call."""
+    global _tool_schema_tokens
+    if _tool_schema_tokens is not None:
+        return _tool_schema_tokens
+    try:
+        from .tools import TOOLS
+        from langchain_core.utils.function_calling import convert_to_openai_function
+        schemas = [convert_to_openai_function(t) for t in TOOLS]
+        text = json.dumps(schemas, ensure_ascii=False)
+        _tool_schema_tokens = len(_get_encoder().encode(text))
+    except Exception:
+        _tool_schema_tokens = 1500  # safe fallback
+    return _tool_schema_tokens
+
+
+def estimate_tokens(messages: list, include_tools: bool = True) -> int:
+    """Estimate token count using tiktoken (cl100k_base).
+
+    Includes tool schemas by default since .bind_tools() sends them with every request.
+    """
+    enc = _get_encoder()
+    parts: list[str] = []
     for msg in messages:
         if isinstance(msg.content, str):
-            total += len(msg.content)
+            parts.append(msg.content)
         elif isinstance(msg.content, list):
             for block in msg.content:
                 if isinstance(block, dict):
-                    total += len(json.dumps(block, ensure_ascii=False))
+                    text = block.get("text") or block.get("thinking") or ""
+                    if text:
+                        parts.append(text)
+                    else:
+                        parts.append(json.dumps(block, ensure_ascii=False))
                 else:
-                    total += len(str(block))
-        # Count tool_calls on AIMessages
+                    parts.append(str(block))
         if isinstance(msg, AIMessage) and msg.tool_calls:
-            total += len(json.dumps(msg.tool_calls, ensure_ascii=False))
-    return total // 4
+            parts.append(json.dumps(msg.tool_calls, ensure_ascii=False))
+        if isinstance(msg, ToolMessage) and msg.tool_call_id:
+            parts.append(msg.tool_call_id)
+    tokens = len(enc.encode("\n".join(parts)))
+    # Add per-message overhead (~4 tokens each for role, separators)
+    tokens += len(messages) * 4
+    if include_tools:
+        tokens += _get_tool_schema_tokens()
+    return tokens
 
 
 # --- Turn boundary helpers ---

@@ -92,7 +92,8 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
     history.extend(prev_messages)
     history.append(HumanMessage(content=msg.text))
 
-    last_input_tokens = 0
+    # Pre-estimate tokens for loaded session (catches overflow before first LLM call)
+    last_input_tokens = estimate_tokens(history)
     compact_failures = 0
     iteration = 0
 
@@ -150,9 +151,13 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
         response: AIMessage = await llm.ainvoke(history)
         history.append(response)
 
-        # Track tokens from API response
+        # Track tokens: prefer exact API value, fall back to tiktoken estimate
         usage = (response.response_metadata or {}).get("usage", {})
-        last_input_tokens = usage.get("input_tokens", last_input_tokens)
+        api_input_tokens = usage.get("input_tokens", 0)
+        if api_input_tokens:
+            last_input_tokens = api_input_tokens
+        else:
+            last_input_tokens = estimate_tokens(history)
 
         # Store in shared state for context_status tool
         _session_token_usage[session_name] = {

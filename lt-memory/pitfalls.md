@@ -35,7 +35,8 @@ AGENTS.md, SOUL.md, USER.md, TOOLS.md are ADDITIVE to the base system prompt, no
 - **Adaptive keep**: after compaction, must be under 40% of context window. Tries keeping 3→2→1→0 turns until target is met. Prevents re-compaction spiral when recent turns are large.
 - Per-session memory stored in `sessions/{session_name}_memory/MEMORY.md` and `HISTORY.md`.
 - `last_input_tokens` starts at 0 — compaction only triggers after at least one API response with usage data.
-- After `MAX_FAILURES_BEFORE_RAW` (3) compact failures, falls back to raw text archive in HISTORY.md.
+- After `MAX_FAILURES_BEFORE_RAW` (3) compact failures, falls back to raw text archive in HISTORY.md + hard truncates to SystemMessage + 1 turn. Without hard truncation, the bloated history stays in memory and the next LLM call hits context limit.
+- Use `contextvars.ContextVar` (not plain globals) to share session state between agent.py and tools. Plain globals cause race conditions in gateway mode with concurrent users.
 
 ## Tool execution
 - Tool functions are SYNC (`tool_fn.invoke()`). Run them in `loop.run_in_executor()` or they block the entire event loop, preventing outbound messages from being delivered during tool execution.

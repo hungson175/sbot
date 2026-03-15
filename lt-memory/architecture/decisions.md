@@ -29,6 +29,18 @@ Current bus is in-process Python object. When scaling requires it, extract to an
 - **Gains**: process isolation (crash safety), independent scaling, natural delivery timing (no sleep hacks), message replay/monitoring
 - **Costs**: external dependency, network serialization, deployment complexity
 
+## contextvars for per-session state (not globals)
+`_current_session_var` uses `contextvars.ContextVar`, not a plain global.
+**Why:** Plain globals are overwritten by any coroutine. In gateway mode, concurrent Telegram users would clobber each other's session reference, causing `context_status` to return wrong data. `ContextVar` gives each async task its own value.
+
+## Adaptive keep for compaction (not fixed turn count)
+After LLM compaction, try keeping 3→2→1→0 recent turns, stopping when under 40% target.
+**Why:** Fixed 3-turn keep caused re-compaction spiral when recent turns were large (e.g. reading big files). The 80% trigger / 40% target gives ~40% breathing room between compactions.
+
+## Hard truncation as compact failure fallback
+After 3 failed compact attempts, raw-archive the history to HISTORY.md and hard-truncate to SystemMessage + 1 turn.
+**Why:** Without truncation, the bloated history stays in memory, the next LLM call hits context limit and errors, and the agent turn crashes with no recovery.
+
 ## exec_cmd background mode
 `background=true` starts process with `Popen` + `start_new_session=True`, returns PID immediately.
 **Why:** Without it, `npm start` or `python server.py` blocks the agent forever.
