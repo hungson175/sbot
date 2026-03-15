@@ -1,0 +1,13 @@
+Search the web using Exa neural search. Returns titles, URLs, and content highlights.
+
+Use this to find current information, documentation, code examples, research papers, news, or any web content.
+
+Args:
+  query: str — The search query. Be specific and descriptive (e.g. "Python asyncio best practices 2024", not just "asyncio").
+  num_results: int — Number of results to return. Default 5, max 20.
+  category: str — Optional category filter. One of: "news", "research paper", "tweet", "company", "people". Omit for general search.
+
+Examples:
+  web_search(query="LangChain auto-compact context window management")
+  web_search(query="OpenAI API rate limiting best practices", num_results=3)
+  web_search(query="latest transformer architecture papers", category="research paper")

@@ -147,6 +147,52 @@ def context_status() -> str:
     return f"Context: {format_token_usage(in_tokens, max_tokens)} — {remaining_k}k remaining"
 
 
+@tool(description=_load_description("web_search"))
+def web_search(query: str, num_results: int = 5, category: str = "") -> str:
+    from .config import EXA_API_KEY
+    if not EXA_API_KEY:
+        return "Error: EXA_API_KEY not set. Add it to ~/dev/.env"
+    from exa_py import Exa
+    exa = Exa(api_key=EXA_API_KEY)
+    kwargs = {
+        "query": query,
+        "type": "auto",
+        "num_results": min(num_results, 20),
+        "highlights": {"max_characters": 4000},
+    }
+    if category:
+        kwargs["category"] = category
+    results = exa.search_and_contents(**kwargs)
+    lines = []
+    for r in results.results:
+        lines.append(f"### {r.title}")
+        lines.append(f"URL: {r.url}")
+        if hasattr(r, "highlights") and r.highlights:
+            for h in r.highlights[:3]:
+                lines.append(f"> {h[:500]}")
+        lines.append("")
+    return "\n".join(lines) if lines else f"No results found for '{query}'"
+
+
+@tool(description=_load_description("web_fetch"))
+def web_fetch(url: str, max_characters: int = 10000) -> str:
+    from .config import EXA_API_KEY
+    if not EXA_API_KEY:
+        return "Error: EXA_API_KEY not set. Add it to ~/dev/.env"
+    from exa_py import Exa
+    exa = Exa(api_key=EXA_API_KEY)
+    results = exa.get_contents(
+        urls=[url],
+        text={"max_characters": min(max_characters, 50000)},
+    )
+    if not results.results:
+        return f"Error: could not fetch content from {url}"
+    r = results.results[0]
+    title = f"# {r.title}\n\n" if hasattr(r, "title") and r.title else ""
+    text = r.text if hasattr(r, "text") and r.text else "(no content)"
+    return f"{title}{text}"
+
+
 @tool(description=_load_description("plan"))
 def plan(todo_list: list[dict]) -> str:
     _STATE_ICONS = {"pending": "⬚", "in_progress": "▶", "done": "✓"}
@@ -163,5 +209,5 @@ def plan(todo_list: list[dict]) -> str:
     return summary + "\n" + "\n".join(lines)
 
 
-TOOLS = [read_file, list_dir, write_file, edit_file, search_files, exec_cmd, plan, context_status]
+TOOLS = [read_file, list_dir, write_file, edit_file, search_files, exec_cmd, plan, context_status, web_search, web_fetch]
 TOOL_MAP = {t.name: t for t in TOOLS}

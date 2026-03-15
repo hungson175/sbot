@@ -151,11 +151,15 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
         response: AIMessage = await llm.ainvoke(history)
         history.append(response)
 
-        # Track tokens: prefer exact API value, fall back to tiktoken estimate
+        # Track tokens: use API total (input + cached), fall back to tiktoken estimate
         usage = (response.response_metadata or {}).get("usage", {})
-        api_input_tokens = usage.get("input_tokens", 0)
-        if api_input_tokens:
-            last_input_tokens = api_input_tokens
+        api_total = (
+            (usage.get("input_tokens") or 0)
+            + (usage.get("cache_read_input_tokens") or 0)
+            + (usage.get("cache_creation_input_tokens") or 0)
+        )
+        if api_total:
+            last_input_tokens = api_total
         else:
             last_input_tokens = estimate_tokens(history)
 

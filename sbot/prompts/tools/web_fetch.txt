@@ -1,0 +1,11 @@
+Fetch and extract content from a specific URL. Returns the page text content.
+
+Use this when you have a specific URL and need to read its content — articles, documentation, code, etc.
+
+Args:
+  url: str — The URL to fetch content from (e.g. "https://docs.python.org/3/library/asyncio.html").
+  max_characters: int — Maximum characters to return. Default 10000, max 50000.
+
+Examples:
+  web_fetch(url="https://docs.python.org/3/library/asyncio-task.html")
+  web_fetch(url="https://github.com/langchain-ai/langchain/blob/main/README.md", max_characters=5000)
