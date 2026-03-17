@@ -47,45 +47,33 @@ class TelegramChannel(BaseChannel):
     async def _sender_loop(self):
         """Background task: consume send queue, POST to Telegram API.
 
-        Progress events (thinking, tool_call, tool_result) update a single
-        status message in-place. The final RESPONSE is sent as a new message.
+        Progress events (thinking, tool_call, tool_result) each send a NEW
+        message so the full process is visible as it happens. When the final
+        RESPONSE arrives, all intermediate messages are bulk-deleted and only
+        the answer remains.
         """
-        # Track the live status message per chat_id
-        status_msgs: dict[str, int] = {}  # chat_id → message_id
+        # Track all intermediate message IDs per chat_id for bulk delete at end
+        progress_msgs: dict[str, list[int]] = {}  # chat_id → [message_id, ...]
 
         while True:
             msg = await self._send_queue.get()
             chat_id = int(msg.chat_id)
             try:
                 if msg.message_type in (MsgType.THINKING, MsgType.TOOL_CALL, MsgType.TOOL_RESULT):
-                    # Progress: edit existing status message or create one
-                    status_text = msg.text[:4000]  # Telegram limit ~4096
-                    if msg.chat_id in status_msgs:
-                        try:
-                            await self._app.bot.edit_message_text(
-                                chat_id=chat_id,
-                                message_id=status_msgs[msg.chat_id],
-                                text=f"⏳ {status_text}",
-                            )
-                        except Exception:
-                            pass  # edit can fail if text unchanged
-                    else:
-                        sent = await self._app.bot.send_message(
-                            chat_id=chat_id,
-                            text=f"⏳ {status_text}",
-                        )
-                        status_msgs[msg.chat_id] = sent.message_id
+                    # Each step gets its own message — full log stays visible
+                    sent = await self._app.bot.send_message(
+                        chat_id=chat_id,
+                        text=msg.text[:4096],
+                    )
+                    progress_msgs.setdefault(msg.chat_id, []).append(sent.message_id)
 
                 elif msg.message_type in (MsgType.RESPONSE, MsgType.ERROR):
-                    # Delete the status message
-                    if msg.chat_id in status_msgs:
+                    # Bulk-delete all intermediate messages
+                    for mid in progress_msgs.pop(msg.chat_id, []):
                         try:
-                            await self._app.bot.delete_message(
-                                chat_id=chat_id,
-                                message_id=status_msgs.pop(msg.chat_id),
-                            )
+                            await self._app.bot.delete_message(chat_id=chat_id, message_id=mid)
                         except Exception:
-                            status_msgs.pop(msg.chat_id, None)
+                            pass
 
                     # Send final response with formatting
                     await self._send_formatted(chat_id, msg.text)

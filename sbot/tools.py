@@ -5,6 +5,8 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
+from .skills import get_skill_by_name, get_skills, load_skill_content
+
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts" / "tools"
 _MAX_CHARS = 128_000
@@ -147,13 +149,26 @@ def context_status() -> str:
     return f"Context: {format_token_usage(in_tokens, max_tokens)} — {remaining_k}k remaining"
 
 
+_exa_client = None
+
+
+def _get_exa():
+    """Lazy singleton Exa client — reuses HTTP connection pool across calls."""
+    global _exa_client
+    if _exa_client is None:
+        from .config import EXA_API_KEY
+        if not EXA_API_KEY:
+            return None
+        from exa_py import Exa
+        _exa_client = Exa(api_key=EXA_API_KEY)
+    return _exa_client
+
+
 @tool(description=_load_description("web_search"))
 def web_search(query: str, num_results: int = 5, category: str = "") -> str:
-    from .config import EXA_API_KEY
-    if not EXA_API_KEY:
-        return "Error: EXA_API_KEY not set. Add it to ~/dev/.env"
-    from exa_py import Exa
-    exa = Exa(api_key=EXA_API_KEY)
+    exa = _get_exa()
+    if not exa:
+        return "Error: EXA_API_KEY not set. Add it to .env"
     kwargs = {
         "query": query,
         "type": "auto",
@@ -162,7 +177,10 @@ def web_search(query: str, num_results: int = 5, category: str = "") -> str:
     }
     if category:
         kwargs["category"] = category
-    results = exa.search_and_contents(**kwargs)
+    try:
+        results = exa.search_and_contents(**kwargs)
+    except Exception as e:
+        return f"Error: web search failed: {e}"
     lines = []
     for r in results.results:
         lines.append(f"### {r.title}")
@@ -176,15 +194,16 @@ def web_search(query: str, num_results: int = 5, category: str = "") -> str:
 
 @tool(description=_load_description("web_fetch"))
 def web_fetch(url: str, max_characters: int = 10000) -> str:
-    from .config import EXA_API_KEY
-    if not EXA_API_KEY:
-        return "Error: EXA_API_KEY not set. Add it to ~/dev/.env"
-    from exa_py import Exa
-    exa = Exa(api_key=EXA_API_KEY)
-    results = exa.get_contents(
-        urls=[url],
-        text={"max_characters": min(max_characters, 50000)},
-    )
+    exa = _get_exa()
+    if not exa:
+        return "Error: EXA_API_KEY not set. Add it to .env"
+    try:
+        results = exa.get_contents(
+            urls=[url],
+            text={"max_characters": min(max_characters, 50000)},
+        )
+    except Exception as e:
+        return f"Error: web fetch failed: {e}"
     if not results.results:
         return f"Error: could not fetch content from {url}"
     r = results.results[0]
@@ -209,5 +228,22 @@ def plan(todo_list: list[dict]) -> str:
     return summary + "\n" + "\n".join(lines)
 
 
-TOOLS = [read_file, list_dir, write_file, edit_file, search_files, exec_cmd, plan, context_status, web_search, web_fetch]
+@tool(description=_load_description("skill"))
+def skill(name: str = "") -> str:
+    if not name:
+        skills = get_skills()
+        if not skills:
+            return "No skills found."
+        lines = [f"Available skills ({len(skills)}):"]
+        for s in skills:
+            lines.append(f"  - {s.name}: {s.description[:150]}")
+        return "\n".join(lines)
+
+    found = get_skill_by_name(name)
+    if not found:
+        return f"Skill '{name}' not found. Call skill() with no args to list available skills."
+    return load_skill_content(found)
+
+
+TOOLS = [read_file, list_dir, write_file, edit_file, search_files, exec_cmd, plan, context_status, web_search, web_fetch, skill]
 TOOL_MAP = {t.name: t for t in TOOLS}

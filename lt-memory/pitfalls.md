@@ -23,10 +23,11 @@ AGENTS.md, SOUL.md, USER.md, TOOLS.md are ADDITIVE to the base system prompt, no
 ## Session persistence
 - SystemMessage is never saved to JSONL — it's config, not history.
 - AIMessage tool_calls must be preserved in serialization or tool dispatch breaks on resume.
-- Session history capped at 100 messages on load to avoid context window overflow.
+- Session history capped at 100 messages on load to avoid context window overflow. (Review: this cap may be redundant now that auto-compact exists — see backlog.)
 - Use `save_messages()` (batch) not per-message saves — single file open, no per-call mkdir.
 - `load_session()` returns `tuple[list, int]` (messages, last_consolidated) — not just a list.
 - JSONL lines with `_type` field are metadata/compact events, skipped by `_dict_to_msg()`.
+- **Session truncation must respect message boundaries.** Slicing `messages[-N:]` can orphan ToolMessages whose parent AIMessage (with `tool_calls`) was cut. MiniMax returns 400: `tool result's tool id not found`. Fix: after truncation, walk forward to the first HumanMessage for a clean boundary.
 
 ## Auto-compact
 - Compaction triggers when API-reported `input_tokens` exceeds 80% of 204k context window.
@@ -49,6 +50,11 @@ AGENTS.md, SOUL.md, USER.md, TOOLS.md are ADDITIVE to the base system prompt, no
 
 ## Network channel outbound — async send queue, not sync callback
 - CLI uses sync callback (instant `print()`). Network channels (Telegram, Messenger) must NOT do HTTP calls in the sync callback — that blocks the agent during API latency. Instead: sync callback queues the message, a background `_sender_loop` task does the actual async HTTP POST.
+
+## Testing pitfalls
+- **venv vs system pip**: `pip install pytest` installs to system Python, not `.venv`. Use `uv pip install` or `.venv/bin/python3 -m pip install` explicitly.
+- **Mocking `with_structured_output` for fallback tests**: `llm.with_structured_output()` returns a NEW LLM object. To test the fallback path (structured output fails → JSON parse), make the returned LLM's `ainvoke` raise, not `with_structured_output` itself: `structured_llm = AsyncMock(); structured_llm.ainvoke.side_effect = NotImplementedError; mock_llm.with_structured_output.return_value = structured_llm`.
+- **VCR cassettes**: recorded in `tests/integration/cassettes/`. Re-record with `--record-mode=once` after changing system prompts or tool definitions — stale cassettes will replay old LLM responses that don't match new code expectations.
 
 ## MiniMax M2.5 quirks
 - Always-on `<think>` reasoning — adds ~2s latency per turn even for trivial responses.

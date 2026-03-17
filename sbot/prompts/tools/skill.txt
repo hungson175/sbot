@@ -1,0 +1,13 @@
+Load a skill's full instructions into context. Skills extend your capabilities with
+specialized workflows, tool integrations, and domain expertise.
+
+Call with no arguments to list all available skills.
+Call with a skill name to load its full instructions.
+
+Args:
+    name: The skill name to load. Leave empty to list all available skills.
+
+Examples:
+    skill()                    → lists all available skills
+    skill(name="playwright-cli") → loads browser automation instructions
+    skill(name="use-my-pkm")    → loads PKM/Obsidian vault instructions

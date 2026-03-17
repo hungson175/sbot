@@ -6,7 +6,7 @@ from pathlib import Path
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 SESSIONS_DIR = Path("sessions")
-MAX_HISTORY_MESSAGES = 100
+MAX_HISTORY_MESSAGES = 0  # 0 = no cap; compaction manages context size
 
 # Ensure sessions dir exists once at import time
 SESSIONS_DIR.mkdir(exist_ok=True)
@@ -91,6 +91,15 @@ def load_session(session_name: str, max_messages: int = MAX_HISTORY_MESSAGES) ->
         msg = _dict_to_msg(d)
         if msg:
             messages.append(msg)
-    if len(messages) > max_messages:
+    if max_messages and len(messages) > max_messages:
         messages = messages[-max_messages:]
+        # Never start on a ToolMessage — its parent AIMessage (with tool_calls) may be cut.
+        # Walk forward to the first HumanMessage for a clean boundary.
+        start = 0
+        for i, m in enumerate(messages):
+            if isinstance(m, HumanMessage):
+                start = i
+                break
+        if start > 0:
+            messages = messages[start:]
     return messages, last_consolidated

@@ -35,3 +35,11 @@ select = ["E", "F", "I", "W"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "vcr: marks tests that use VCR cassettes (recorded HTTP responses)",
+]
+
+[tool.pytest.ini_options.vcr]
+cassette_library_dir = "tests/integration/cassettes"
+record_mode = "none"
+decode_compressed_response = true

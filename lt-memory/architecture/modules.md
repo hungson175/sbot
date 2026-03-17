@@ -15,6 +15,7 @@ Entry point. `run()` dispatches to `main_cli()` or `main_serve()` based on args.
 Unbounded `while True` tool-calling loop. Tools run in `run_in_executor()`.
 Session save batched via `save_messages()`. Emits events via `_emit()` → `bus.emit()`.
 Auto-compact check before each LLM call (triggers at 80% of 204k context).
+System prompt assembled at runtime: base prompt + memory (per-session) + skills metadata (name + description).
 Token usage appended to every final response. Uses `contextvars.ContextVar` for async-safe per-session state (shared with `context_status` tool).
 
 ## compact.py
@@ -34,10 +35,17 @@ JSONL persistence in `sessions/`. `save_messages()` batches writes.
 ## config.py
 Loads `.env`, reads `prompts/system.txt` as base prompt, appends bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md).
 
+## skills.py
+Skill discovery from `~/.claude/skills/` (user global, Claude Code compatible) and `.claude/skills/` (project-level, higher precedence on name conflict).
+Parses YAML frontmatter (name, description) without PyYAML dependency. Module-level cache — discovered once, reused.
+`format_skills_for_prompt()` generates markdown listing for system prompt injection (~2k tokens for ~46 skills).
+`load_skill_content()` returns SKILL.md body (after frontmatter) + lists bundled resources (references/, scripts/, assets/).
+
 ## tools.py
-8 tools via `@tool(description=_load_description("name"))`.
+11 tools via `@tool(description=_load_description("name"))`.
 Descriptions in `prompts/tools/*.txt`. `exec_cmd` has `background` mode.
 `context_status` tool reads current session token usage via lazy import from `agent.get_current_token_usage()`.
+`web_search`/`web_fetch` use Exa API (lazy singleton client). `skill` tool loads skill content on demand via `skills.py`.
 
 ## channels/base.py
 `BaseChannel` ABC: `start()`, `stop()`, `send()`, `is_allowed()`.

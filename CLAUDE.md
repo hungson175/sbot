@@ -20,9 +20,10 @@ python3 -m sbot serve                   # Gateway mode (Telegram + future channe
 ```
 sbot/
   config.py        — API key, model, system prompt loader
-  tools.py         — 8 tools: read_file, list_dir, write_file, edit_file, search_files, exec_cmd (with background), plan, context_status
+  tools.py         — 11 tools: read_file, list_dir, write_file, edit_file, search_files, exec_cmd (with background), plan, context_status, web_search, web_fetch, skill
+  skills.py        — Skill discovery (~/.claude/skills/ + .claude/skills/), frontmatter parsing, content loading
   compact.py       — Two-phase context compaction (prune + LLM summary) + per-session MemoryStore
-  agent.py         — agent_loop() consuming from bus, emitting outbound events, auto-compact
+  agent.py         — agent_loop() consuming from bus, emitting outbound events, auto-compact, skill/memory injection
   session.py       — JSONL persistence with compact/metadata events
   bus.py           — MessageBus with MsgType enum, sync callback delivery
   app.py           — Entry point: CLI mode + gateway mode (`serve`)
@@ -42,9 +43,39 @@ sbot/
 - [x] Layer 6 — Telegram channel (polling, allowlist, async send queue)
 - [ ] Layer 7 — Facebook Messenger channel
 - [x] Layer 8 — Auto-compact (two-phase context compaction + per-session memory)
+- [x] Layer 10 — Skills system (discovery, `skill` tool, prompt injection)
 - [ ] Layer 9+ — Provider abstraction, cron, extensions
 
 Full backlog: `docs/plan/backlog.md`
+
+## Testing — TDD (MANDATORY)
+
+**No Tests → No Code.** Every new feature or bug fix follows Red → Green:
+
+1. **Define coverage target FIRST** — before writing any test, decide and state the target line coverage % for the module being changed. sbot targets by layer:
+   - agent.py, session.py, compact.py (core loop): 85%+
+   - tools.py, skills.py (service layer): 80%+
+   - bus.py, config.py, channels/ (infra/glue): 60%+
+   - New/changed lines per commit: 85%+
+2. **Write failing tests** — tests that define the expected behavior. Run them, confirm they fail (RED).
+3. **Write the code** — minimum code to make tests pass (GREEN).
+4. **Refactor** — clean up, then re-run tests to confirm still green.
+5. **Test categories** — coverage % is necessary but NOT sufficient. Every test suite must cover:
+   - **Normal cases** — happy path, typical inputs
+   - **Boundary cases** — empty inputs, max values, off-by-one, first/last element
+   - **Error/exception cases** — invalid input, missing files, network failures, malformed data
+   - **Edge cases** — unicode, very large inputs, concurrent access where relevant
+6. **Be honest about coverage gaps.** If a module legitimately can't hit the target (e.g. network I/O channels need integration tests, not unit tests), state why and what test type would cover it instead. Don't write bullshit tests just to inflate coverage numbers.
+
+**LLM calls MUST be mocked in unit tests.** LLM API calls cost money and are non-deterministic. Mock `llm.ainvoke()`, `llm.with_structured_output()`, and any Exa API calls. Use `unittest.mock.patch` or `pytest-mock`. Only E2E tests (separate scope) may hit real APIs.
+
+```bash
+python3 -m pytest tests/test_*.py -v                           # Unit tests only (fast)
+python3 -m pytest tests/integration/ -v                        # Integration tests (replays VCR cassettes)
+python3 -m pytest tests/ -v                                    # All tests
+python3 -m pytest tests/ --cov=sbot --cov-report=term-missing  # All + coverage
+python3 -m pytest tests/integration/ --record-mode=once -v     # Re-record cassettes (hits real API, costs $)
+```
 
 ## Key Conventions
 - Tool descriptions in `sbot/prompts/tools/<name>.txt` with `Args:` section and examples

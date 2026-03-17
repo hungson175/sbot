@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # --- Constants ---
 
 CONTEXT_WINDOW = 204_000
-COMPACT_TRIGGER = 0.80          # trigger at 80% of context window
+COMPACT_TRIGGER = 0.60          # trigger at 60% of context window
 POST_COMPACT_TARGET = 0.40      # after compaction, must be under 40%
 KEEP_RECENT_TURNS = 3           # preferred turns to keep (adaptive: 3→2→1→0)
 MAX_FAILURES_BEFORE_RAW = 3     # then fall back to raw archive
@@ -256,7 +256,7 @@ def rebuild_history(summary: CompactSummary, recent_messages: list, system_promp
     summary_text = "\n".join(parts)
 
     history = [SystemMessage(content=system_prompt)]
-    history.append(HumanMessage(content=f"[Previous conversation summary]\n\n{summary_text}"))
+    history.append(HumanMessage(content=f"## Session Summary\n\n{summary_text}"))
     history.append(AIMessage(content="Understood. I have the context from our previous conversation. Let's continue."))
     history.extend(recent_messages)
     return history

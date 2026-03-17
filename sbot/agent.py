@@ -25,6 +25,7 @@ from .compact import (
 )
 from .config import SYSTEM_PROMPT
 from .session import load_session, save_compact_event, save_messages
+from .skills import get_skills_prompt
 from .tools import TOOL_MAP
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,11 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
     system_content = SYSTEM_PROMPT
     if memory_ctx:
         system_content += f"\n\n---\n\n## Long-term Memory\n\n{memory_ctx}"
+
+    # Inject skill metadata (name + description only, ~2k tokens)
+    skills_ctx = get_skills_prompt()
+    if skills_ctx:
+        system_content += f"\n\n---\n\n{skills_ctx}"
 
     # Build history
     history = [SystemMessage(content=system_content)]
