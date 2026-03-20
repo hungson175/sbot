@@ -64,6 +64,31 @@ class TestEstimateTokens:
         without_tools = estimate_tokens(msgs, include_tools=False)
         assert with_tools > without_tools
 
+    def test_tool_use_block_not_double_counted(self):
+        """tool_use content blocks must NOT be counted — args are already in tool_calls."""
+        large_args = {"content": "x" * 1000}
+        # With tool_use block in content (how MiniMax/Anthropic returns it)
+        msgs_with_block = [
+            AIMessage(
+                content=[
+                    {"type": "text", "text": "writing file"},
+                    {"type": "tool_use", "id": "c1", "name": "write_file", "input": large_args},
+                ],
+                tool_calls=[{"id": "c1", "name": "write_file", "args": large_args, "type": "tool_call"}],
+            ),
+        ]
+        # Without tool_use block (same data, just missing the redundant block)
+        msgs_without_block = [
+            AIMessage(
+                content=[{"type": "text", "text": "writing file"}],
+                tool_calls=[{"id": "c1", "name": "write_file", "args": large_args, "type": "tool_call"}],
+            ),
+        ]
+        tokens_with = estimate_tokens(msgs_with_block, include_tools=False)
+        tokens_without = estimate_tokens(msgs_without_block, include_tools=False)
+        # Must be identical — tool_use block adds nothing
+        assert tokens_with == tokens_without
+
 
 class TestFindTurnBoundaries:
     def test_basic(self):

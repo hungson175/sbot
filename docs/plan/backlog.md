@@ -96,12 +96,18 @@ Circle back after the two-channel MVP is working.
 ## Layer 8 — Auto-compact ✅
 
 Two-phase context compaction + per-session memory.
-- Phase 1: prune old tool outputs (free)
+- Phase 1: prune old tool outputs (free, permanent via `save_full_session`)
 - Phase 2: LLM summary with structured output
 - Adaptive keep (3→2→1→0 turns), hard truncation fallback
 - Per-session MEMORY.md + HISTORY.md
-- Token tracking (tiktoken estimate + API actual)
+- Token tracking: API-count-based (Codex pattern), persisted in JSONL for restart recovery
+- **Design doc**: `docs/tech/sbot/context-compaction-strategy.md`
 **Done.** `sbot/compact.py`, `sbot/agent.py`, `sbot/session.py`
+
+### Remaining gaps (see design doc):
+- [ ] Session-close hook: write `memory_update` + `history_entry` even when compaction didn't fire
+- [ ] Day logs: daily auto-generated summaries across sessions (OpenAI-style)
+- [ ] Vector index on HISTORY.md for semantic recall (currently grep only)
 
 ---
 

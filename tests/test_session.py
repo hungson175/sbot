@@ -13,8 +13,10 @@ from sbot.session import (
     MAX_HISTORY_MESSAGES,
     _dict_to_msg,
     _msg_to_dict,
+    load_last_token_usage,
     load_session,
     save_compact_event,
+    save_full_session,
     save_messages,
 )
 
@@ -161,3 +163,64 @@ class TestLoadSession:
         )
         loaded, _ = load_session("test_session")
         assert len(loaded) == 2
+
+
+class TestSaveFullSession:
+    def test_creates_file(self, tmp_sessions):
+        msgs = [HumanMessage(content="hi"), AIMessage(content="hello")]
+        save_full_session("s1", msgs)
+        assert (tmp_sessions / "s1.jsonl").exists()
+
+    def test_loadable(self, tmp_sessions):
+        msgs = [
+            HumanMessage(content="q"),
+            AIMessage(content="a"),
+            ToolMessage(content="result", tool_call_id="c1"),
+        ]
+        save_full_session("s1", msgs)
+        loaded, _ = load_session("s1")
+        assert len(loaded) == 3
+        assert loaded[0].content == "q"
+        assert loaded[1].content == "a"
+        assert loaded[2].content == "result"
+
+    def test_overwrites_existing(self, tmp_sessions):
+        """save_full_session replaces prior content — pruning becomes permanent."""
+        save_messages("s1", [HumanMessage(content="old1"), HumanMessage(content="old2")])
+        save_full_session("s1", [HumanMessage(content="pruned")])
+        loaded, _ = load_session("s1")
+        assert len(loaded) == 1
+        assert loaded[0].content == "pruned"
+
+    def test_empty_list_clears_file(self, tmp_sessions):
+        save_messages("s1", [HumanMessage(content="old")])
+        save_full_session("s1", [])
+        loaded, _ = load_session("s1")
+        assert loaded == []
+
+    def test_persists_token_usage(self, tmp_sessions):
+        save_full_session("s1", [HumanMessage(content="hi")], token_usage=12345)
+        assert load_last_token_usage("s1") == 12345
+
+    def test_zero_token_usage_not_persisted(self, tmp_sessions):
+        save_full_session("s1", [HumanMessage(content="hi")], token_usage=0)
+        assert load_last_token_usage("s1") == 0
+
+
+class TestLoadLastTokenUsage:
+    def test_returns_zero_for_nonexistent(self, tmp_sessions):
+        assert load_last_token_usage("no_session") == 0
+
+    def test_returns_zero_when_no_usage_record(self, tmp_sessions):
+        save_messages("s1", [HumanMessage(content="hi")])
+        assert load_last_token_usage("s1") == 0
+
+    def test_returns_latest_usage(self, tmp_sessions):
+        save_full_session("s1", [HumanMessage(content="hi")], token_usage=999)
+        assert load_last_token_usage("s1") == 999
+
+    def test_returns_last_usage_when_multiple(self, tmp_sessions):
+        """Only the last usage record matters."""
+        save_full_session("s1", [HumanMessage(content="hi")], token_usage=100)
+        save_full_session("s1", [HumanMessage(content="hi"), AIMessage(content="yo")], token_usage=200)
+        assert load_last_token_usage("s1") == 200

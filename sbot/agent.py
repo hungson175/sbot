@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from .bus import InboundMessage, MessageBus, MsgType, OutboundMessage
 from .compact import (
+    BYTES_PER_TOKEN,
     COMPACT_TRIGGER,
     CONTEXT_WINDOW,
     KEEP_RECENT_TURNS,
@@ -24,7 +25,7 @@ from .compact import (
     rebuild_history,
 )
 from .config import SYSTEM_PROMPT
-from .session import load_session, save_compact_event, save_messages
+from .session import load_last_token_usage, load_session, save_compact_event, save_full_session
 from .skills import get_skills_prompt
 from .tools import TOOL_MAP
 
@@ -98,8 +99,17 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
     history.extend(prev_messages)
     history.append(HumanMessage(content=msg.text))
 
-    # Pre-estimate tokens for loaded session (catches overflow before first LLM call)
-    last_input_tokens = estimate_tokens(history)
+    # Use last known API token count as base (accurate), only estimate the new user message.
+    # Codex does the same: trust last_token_usage.total_tokens, estimate only delta items.
+    # Falls back to full estimate on first-ever turn or after restart.
+    stored_tokens = _session_token_usage.get(session_name, {}).get("input_tokens")
+    if stored_tokens is None:
+        stored_tokens = load_last_token_usage(session_name) or None
+    if stored_tokens:
+        new_msg_bytes = len(msg.text.encode("utf-8"))
+        last_input_tokens = stored_tokens + (new_msg_bytes + BYTES_PER_TOKEN - 1) // BYTES_PER_TOKEN
+    else:
+        last_input_tokens = estimate_tokens(history)
     compact_failures = 0
     iteration = 0
 
@@ -225,6 +235,5 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
 
             history.append(ToolMessage(content=result, tool_call_id=tc["id"]))
 
-    # Save all new messages in one batch (skip SystemMessage + previously loaded)
-    new_start = 1 + len(prev_messages)
-    save_messages(session_name, history[new_start:])
+    # Persist full history (skip SystemMessage) + last API token count for next turn
+    save_full_session(session_name, history[1:], token_usage=last_input_tokens)

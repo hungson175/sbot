@@ -41,18 +41,59 @@ def _dict_to_msg(d: dict):
     return None
 
 
-def save_messages(session_name: str, msgs: list):
-    """Append multiple messages in one file operation."""
+def _serialize_msgs(msgs: list) -> list[str]:
+    """Serialize LangChain messages to JSON strings, skipping SystemMessage."""
     lines = []
     for msg in msgs:
         d = _msg_to_dict(msg)
         if d is not None:
             lines.append(json.dumps(d, ensure_ascii=False))
+    return lines
+
+
+def _iter_jsonl(session_name: str):
+    """Yield parsed dicts from a session JSONL, skipping blank/malformed lines."""
+    path = SESSIONS_DIR / f"{session_name}.jsonl"
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            yield json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+
+def save_messages(session_name: str, msgs: list):
+    """Append multiple messages in one file operation."""
+    lines = _serialize_msgs(msgs)
     if not lines:
         return
     path = SESSIONS_DIR / f"{session_name}.jsonl"
     with open(path, "a") as f:
         f.write("\n".join(lines) + "\n")
+
+
+def save_full_session(session_name: str, msgs: list, token_usage: int = 0):
+    """Overwrite the entire session JSONL with msgs (used to persist pruning permanently).
+
+    Optionally persists the last API token count so it survives bot restarts.
+    """
+    lines = _serialize_msgs(msgs)
+    if token_usage > 0:
+        lines.append(json.dumps({"_type": "usage", "input_tokens": token_usage}))
+    path = SESSIONS_DIR / f"{session_name}.jsonl"
+    path.write_text("\n".join(lines) + "\n" if lines else "")
+
+
+def load_last_token_usage(session_name: str) -> int:
+    """Return the last persisted API token count for this session, or 0 if unknown."""
+    last_usage = 0
+    for d in _iter_jsonl(session_name):
+        if d.get("_type") == "usage":
+            last_usage = d.get("input_tokens", 0)
+    return last_usage
 
 
 def save_compact_event(session_name: str, last_consolidated: int, summary_text: str):
@@ -73,18 +114,9 @@ def load_session(session_name: str, max_messages: int = MAX_HISTORY_MESSAGES) ->
     Returns (messages, last_consolidated). Caps at max_messages.
     Skips metadata/compact lines (they have _type field).
     """
-    path = SESSIONS_DIR / f"{session_name}.jsonl"
-    if not path.exists():
-        return [], 0
     messages = []
     last_consolidated = 0
-    for line in path.read_text().splitlines():
-        if not line.strip():
-            continue
-        try:
-            d = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for d in _iter_jsonl(session_name):
         if d.get("_type") in ("compact", "metadata"):
             last_consolidated = d.get("last_consolidated", last_consolidated)
             continue

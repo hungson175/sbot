@@ -20,6 +20,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "aiohttp>=3.9",
     "tiktoken>=0.12",
+    "exa-py>=1.0",
 ]
 
 [project.scripts]

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 CONTEXT_WINDOW = 204_000
 COMPACT_TRIGGER = 0.60          # trigger at 60% of context window
+BYTES_PER_TOKEN = 4             # UTF-8 bytes per token heuristic (same as Codex)
 POST_COMPACT_TARGET = 0.40      # after compaction, must be under 40%
 KEEP_RECENT_TURNS = 3           # preferred turns to keep (adaptive: 3→2→1→0)
 MAX_FAILURES_BEFORE_RAW = 3     # then fall back to raw archive
@@ -90,11 +91,16 @@ def estimate_tokens(messages: list, include_tools: bool = True) -> int:
         elif isinstance(msg.content, list):
             for block in msg.content:
                 if isinstance(block, dict):
-                    text = block.get("text") or block.get("thinking") or ""
-                    if text:
-                        parts.append(text)
-                    else:
-                        parts.append(json.dumps(block, ensure_ascii=False))
+                    btype = block.get("type", "")
+                    if btype == "text":
+                        text = block.get("text", "")
+                        if text:
+                            parts.append(text)
+                    elif btype == "thinking":
+                        thinking = block.get("thinking", "")
+                        if thinking:
+                            parts.append(thinking)
+                    # Skip "tool_use" blocks — args already counted via msg.tool_calls
                 else:
                     parts.append(str(block))
         if isinstance(msg, AIMessage) and msg.tool_calls:
