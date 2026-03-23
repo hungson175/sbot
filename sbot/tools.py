@@ -5,7 +5,7 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-from .skills import get_skill_by_name, get_skills, load_skill_content
+from .skills import get_skill_by_name, get_skills, load_skill_content, is_group_session
 
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts" / "tools"
@@ -230,8 +230,11 @@ def plan(todo_list: list[dict]) -> str:
 
 @tool(description=_load_description("skill"))
 def skill(name: str = "") -> str:
+    in_group = is_group_session()
     if not name:
         skills = get_skills()
+        if in_group:
+            skills = [s for s in skills if not s.private]
         if not skills:
             return "No skills found."
         lines = [f"Available skills ({len(skills)}):"]
@@ -239,7 +242,7 @@ def skill(name: str = "") -> str:
             lines.append(f"  - {s.name}: {s.description[:150]}")
         return "\n".join(lines)
 
-    found = get_skill_by_name(name)
+    found = get_skill_by_name(name, is_group=in_group)
     if not found:
         return f"Skill '{name}' not found. Call skill() with no args to list available skills."
     return load_skill_content(found)

@@ -14,7 +14,10 @@ from sbot.skills import (
     _parse_frontmatter,
     _strip_frontmatter,
     discover_skills,
+    get_skill_by_name,
+    get_skills_prompt,
     load_skill_content,
+    set_group_context,
 )
 
 
@@ -176,3 +179,62 @@ class TestFormatSkillsForPrompt:
         result = _format_skills_for_prompt(skills)
         assert "..." in result
         assert len(long_desc) > 200  # confirm it was actually long
+
+
+class TestPrivateSkills:
+    """Private skills should be hidden in group chats."""
+
+    def test_discover_private_flag(self, tmp_path):
+        d = tmp_path / "skills" / "secret"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\nname: secret\ndescription: Secret stuff\nprivate: true\n---\nBody"
+        )
+        with patch("sbot.skills._SKILL_DIRS", [tmp_path / "skills"]):
+            skills = discover_skills()
+        assert len(skills) == 1
+        assert skills[0].private is True
+
+    def test_private_false_by_default(self, tmp_path):
+        d = tmp_path / "skills" / "public"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\nname: public\ndescription: Public stuff\n---\nBody"
+        )
+        with patch("sbot.skills._SKILL_DIRS", [tmp_path / "skills"]):
+            skills = discover_skills()
+        assert skills[0].private is False
+
+    def test_get_skills_prompt_filters_private_in_group(self, tmp_path):
+        d1 = tmp_path / "skills" / "public"
+        d1.mkdir(parents=True)
+        (d1 / "SKILL.md").write_text("---\nname: public\ndescription: Public\n---\n")
+        d2 = tmp_path / "skills" / "secret"
+        d2.mkdir(parents=True)
+        (d2 / "SKILL.md").write_text("---\nname: secret\ndescription: Secret\nprivate: true\n---\n")
+
+        import sbot.skills
+        sbot.skills._skills_cache = None
+        with patch("sbot.skills._SKILL_DIRS", [tmp_path / "skills"]):
+            sbot.skills._skills_cache = None
+            sbot.skills._skills_by_name = {}
+            prompt_dm = get_skills_prompt(is_group=False)
+            prompt_group = get_skills_prompt(is_group=True)
+
+        assert "secret" in prompt_dm
+        assert "public" in prompt_dm
+        assert "secret" not in prompt_group
+        assert "public" in prompt_group
+
+    def test_get_skill_by_name_blocks_private_in_group(self, tmp_path):
+        d = tmp_path / "skills" / "secret"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text("---\nname: secret\ndescription: Secret\nprivate: true\n---\n")
+
+        import sbot.skills
+        sbot.skills._skills_cache = None
+        sbot.skills._skills_by_name = {}
+        with patch("sbot.skills._SKILL_DIRS", [tmp_path / "skills"]):
+            sbot.skills.get_skills()  # populate cache
+            assert get_skill_by_name("secret", is_group=False) is not None
+            assert get_skill_by_name("secret", is_group=True) is None

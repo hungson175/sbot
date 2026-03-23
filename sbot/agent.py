@@ -26,7 +26,7 @@ from .compact import (
 )
 from .config import SYSTEM_PROMPT
 from .session import load_last_token_usage, load_session, save_compact_event, save_full_session
-from .skills import get_skills_prompt
+from .skills import get_skills_prompt, set_group_context
 from .tools import TOOL_MAP
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,8 @@ def get_current_token_usage() -> dict:
     return _session_token_usage.get(_current_session_var.get(), {})
 
 
+
+
 def _session_key(msg: InboundMessage) -> str:
     return f"{msg.channel}_{msg.chat_id}"
 
@@ -55,11 +57,13 @@ def _extract_reply(response: AIMessage) -> str:
     )
 
 
-async def _emit(bus: MessageBus, channel: str, chat_id: str, text: str, message_type: str):
+async def _emit(bus: MessageBus, channel: str, chat_id: str, text: str, message_type: str,
+                metadata: dict | None = None):
     """Emit outbound message. Sync callback fires immediately (CLI prints),
     then yields so async consumers (Telegram sender) can process."""
     bus.emit(OutboundMessage(
         channel=channel, chat_id=chat_id, text=text, message_type=message_type,
+        metadata=metadata or {},
     ))
     await asyncio.sleep(0.05)  # yield for async sender loops (Telegram HTTP POST)
 
@@ -78,6 +82,13 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
     """Process one inbound message through the agent turn."""
     session_name = _session_key(msg)
     _current_session_var.set(session_name)
+    set_group_context(msg.metadata.get("is_group", False))
+
+    # Build outbound metadata for reply threading (group chats)
+    out_meta = {}
+    if msg.metadata.get("is_group"):
+        out_meta["is_group"] = True
+        out_meta["reply_to_message_id"] = msg.metadata.get("message_id")
 
     # Load session with offset
     prev_messages, last_consolidated = load_session(session_name)
@@ -90,14 +101,19 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
         system_content += f"\n\n---\n\n## Long-term Memory\n\n{memory_ctx}"
 
     # Inject skill metadata (name + description only, ~2k tokens)
-    skills_ctx = get_skills_prompt()
+    is_group = msg.metadata.get("is_group", False)
+    skills_ctx = get_skills_prompt(is_group=is_group)
     if skills_ctx:
         system_content += f"\n\n---\n\n{skills_ctx}"
 
-    # Build history
+    # Build history — prefix group messages with sender name
+    user_text = msg.text
+    if msg.metadata.get("is_group") and msg.metadata.get("sender_name"):
+        user_text = f"[{msg.metadata['sender_name']}]: {msg.text}"
+
     history = [SystemMessage(content=system_content)]
     history.extend(prev_messages)
-    history.append(HumanMessage(content=msg.text))
+    history.append(HumanMessage(content=user_text))
 
     # Use last known API token count as base (accurate), only estimate the new user message.
     # Codex does the same: trust last_token_usage.total_tokens, estimate only delta items.
@@ -116,12 +132,12 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
     while True:
         iteration += 1
         await _emit(bus, msg.channel, msg.chat_id,
-              f"⟳ iteration {iteration}", MsgType.THINKING)
+              f"⟳ iteration {iteration}", MsgType.THINKING, out_meta)
 
         # --- COMPACTION CHECK (before LLM call) ---
         if last_input_tokens > CONTEXT_WINDOW * COMPACT_TRIGGER:
             await _emit(bus, msg.channel, msg.chat_id,
-                  "Compacting context...", MsgType.STATUS)
+                  "Compacting context...", MsgType.STATUS, out_meta)
 
             # Phase 1: prune old tool outputs (free)
             history, freed = prune_tool_outputs(history)
@@ -193,19 +209,19 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
                 if isinstance(block, dict):
                     if block.get("type") == "thinking":
                         await _emit(bus, msg.channel, msg.chat_id,
-                              f"💭 {block['thinking'][:500]}", MsgType.THINKING)
+                              f"💭 {block['thinking'][:500]}", MsgType.THINKING, out_meta)
                     elif block.get("type") == "text" and block.get("text"):
                         await _emit(bus, msg.channel, msg.chat_id,
-                              f"💬 {block['text'][:300]}", MsgType.THINKING)
+                              f"💬 {block['text'][:300]}", MsgType.THINKING, out_meta)
         elif isinstance(response.content, str) and response.content:
             await _emit(bus, msg.channel, msg.chat_id,
-                  f"💬 {response.content[:300]}", MsgType.THINKING)
+                  f"💬 {response.content[:300]}", MsgType.THINKING, out_meta)
 
         # Emit metadata
         if usage:
             await _emit(bus, msg.channel, msg.chat_id,
                   f"📊 tokens: in={usage.get('input_tokens', '?')} out={usage.get('output_tokens', '?')}",
-                  MsgType.THINKING)
+                  MsgType.THINKING, out_meta)
 
         # No tool calls → done
         if not response.tool_calls:
@@ -213,14 +229,14 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
             # Append token usage to final response
             if last_input_tokens:
                 reply += f"\n\n---\n📊 {format_token_usage(last_input_tokens)}"
-            await _emit(bus, msg.channel, msg.chat_id, reply, MsgType.RESPONSE)
+            await _emit(bus, msg.channel, msg.chat_id, reply, MsgType.RESPONSE, out_meta)
             break
 
         # Execute tool calls
         for tc in response.tool_calls:
             args_str = json.dumps(tc["args"], ensure_ascii=False, indent=2)
             await _emit(bus, msg.channel, msg.chat_id,
-                  f"🔧 {tc['name']}({args_str})", MsgType.TOOL_CALL)
+                  f"🔧 {tc['name']}({args_str})", MsgType.TOOL_CALL, out_meta)
 
             tool_fn = TOOL_MAP.get(tc["name"])
             if tool_fn:
@@ -231,7 +247,7 @@ async def _process_message(llm, bus: MessageBus, msg: InboundMessage):
                 result = f"Unknown tool: {tc['name']}"
             result_preview = result[:500] + ("..." if len(result) > 500 else "")
             await _emit(bus, msg.channel, msg.chat_id,
-                  f"→ {tc['name']}: {result_preview}", MsgType.TOOL_RESULT)
+                  f"→ {tc['name']}: {result_preview}", MsgType.TOOL_RESULT, out_meta)
 
             history.append(ToolMessage(content=result, tool_call_id=tc["id"]))
 

@@ -10,7 +10,7 @@ load_dotenv()
 API_KEY = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
 EXA_API_KEY = os.environ.get("EXA_API_KEY", "")
 API_BASE = "https://api.minimax.io/anthropic"
-MODEL = "MiniMax-M2.5-highspeed"
+MODEL = "MiniMax-M2.7-highspeed"
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _BASE_PROMPT = (_PROMPTS_DIR / "system.txt").read_text().strip()

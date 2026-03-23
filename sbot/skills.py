@@ -1,7 +1,21 @@
 """Skill discovery, frontmatter parsing, and content loading."""
 
+import contextvars
 from dataclasses import dataclass
 from pathlib import Path
+
+# Context var set by agent.py per message — used by skill tool for access control
+_is_group_var: contextvars.ContextVar[bool] = contextvars.ContextVar("skills_is_group", default=False)
+
+
+def set_group_context(is_group: bool):
+    """Set whether current session is a group chat. Called by agent."""
+    _is_group_var.set(is_group)
+
+
+def is_group_session() -> bool:
+    """Check if current session is a group chat. Called by skill tool."""
+    return _is_group_var.get()
 
 # Discovery paths (later paths win on name conflict)
 _SKILL_DIRS = [
@@ -17,6 +31,7 @@ class SkillInfo:
     description: str
     path: Path             # path to skill directory
     skill_md_path: Path    # path to SKILL.md
+    private: bool = False  # private skills hidden in group chats
 
 
 def _parse_frontmatter(text: str) -> dict[str, str]:
@@ -71,6 +86,7 @@ def discover_skills() -> list[SkillInfo]:
                 seen[name] = SkillInfo(
                     name=name, description=desc,
                     path=entry, skill_md_path=skill_md,
+                    private=fm.get("private", "").lower() in ("true", "yes"),
                 )
     return list(seen.values())
 
@@ -113,15 +129,21 @@ def get_skills() -> list[SkillInfo]:
     return _skills_cache
 
 
-def get_skill_by_name(name: str) -> SkillInfo | None:
+def get_skill_by_name(name: str, is_group: bool = False) -> SkillInfo | None:
     get_skills()  # ensure cache populated
-    return _skills_by_name.get(name)
+    skill = _skills_by_name.get(name)
+    if skill and skill.private and is_group:
+        return None  # private skills inaccessible in group chats
+    return skill
 
 
-def get_skills_prompt() -> str:
-    """Get cached formatted skills text for system prompt injection."""
-    get_skills()  # ensure cache populated
-    return _skills_prompt
+def get_skills_prompt(is_group: bool = False) -> str:
+    """Get formatted skills text for system prompt injection.
+    Filters out private skills in group chats."""
+    skills = get_skills()
+    if is_group:
+        skills = [s for s in skills if not s.private]
+    return _format_skills_for_prompt(skills)
 
 
 def _format_skills_for_prompt(skills: list[SkillInfo]) -> str:
